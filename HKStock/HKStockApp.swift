@@ -8,7 +8,7 @@ struct HKStockApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
         }
     }
 }
@@ -31,476 +31,34 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 }
 
-struct SKU: Identifiable, Hashable {
-    let part: String
-    let storage: String
-    let color: String
-    let price: Int
-    let storageSlug: String
-    let colorSlug: String
-    var id: String { part }
-    var title: String { "\(storage) \(color)" }
-    var priceText: String { "HK$\(price)" }
-    var productURL: URL {
-        URL(string: "https://www.apple.com/hk/shop/buy-iphone/iphone-18-pro/6.9-inch-display-\(storageSlug)-\(colorSlug)")!
-    }
-}
-
-struct AppleStore: Identifiable, Hashable {
-    let id: String
-    let name: String
-}
-
-struct StockHit: Identifiable, Hashable {
-    let part: String
-    let title: String
-    let storeID: String
-    let storeName: String
-    let display: String
-    let quote: String
-    var id: String { part + "|" + storeID }
-    var inStock: Bool { display == "available" }
-    var statusText: String {
-        if inStock { return "有货" }
-        if display == "unavailable" { return "无货" }
-        if quote.isEmpty { return "未知" }
-        return quote
-    }
-}
-
-enum Catalog {
-    static let skus: [SKU] = [
-        SKU(part: "MJXQ4ZA/A", storage: "256GB", color: "勃艮第红", price: 11499, storageSlug: "256gb", colorSlug: "burgundy"),
-        SKU(part: "MJXN4ZA/A", storage: "256GB", color: "黑色", price: 11499, storageSlug: "256gb", colorSlug: "black"),
-        SKU(part: "MJXP4ZA/A", storage: "256GB", color: "银色", price: 11499, storageSlug: "256gb", colorSlug: "silver"),
-        SKU(part: "MJXR4ZA/A", storage: "256GB", color: "冰川色", price: 11499, storageSlug: "256gb", colorSlug: "glacier"),
-        SKU(part: "MJXV4ZA/A", storage: "512GB", color: "勃艮第红", price: 13299, storageSlug: "512gb", colorSlug: "burgundy"),
-        SKU(part: "MJXT4ZA/A", storage: "512GB", color: "黑色", price: 13299, storageSlug: "512gb", colorSlug: "black"),
-        SKU(part: "MJXU4ZA/A", storage: "512GB", color: "银色", price: 13299, storageSlug: "512gb", colorSlug: "silver"),
-        SKU(part: "MJXW4ZA/A", storage: "512GB", color: "冰川色", price: 13299, storageSlug: "512gb", colorSlug: "glacier"),
-        SKU(part: "MJY04ZA/A", storage: "1TB", color: "勃艮第红", price: 16799, storageSlug: "1tb", colorSlug: "burgundy"),
-        SKU(part: "MJXX4ZA/A", storage: "1TB", color: "黑色", price: 16799, storageSlug: "1tb", colorSlug: "black"),
-        SKU(part: "MJXY4ZA/A", storage: "1TB", color: "银色", price: 16799, storageSlug: "1tb", colorSlug: "silver"),
-        SKU(part: "MJY14ZA/A", storage: "1TB", color: "冰川色", price: 16799, storageSlug: "1tb", colorSlug: "glacier"),
-        SKU(part: "MJY44ZA/A", storage: "2TB", color: "勃艮第红", price: 21999, storageSlug: "2tb", colorSlug: "burgundy"),
-        SKU(part: "MJY24ZA/A", storage: "2TB", color: "黑色", price: 21999, storageSlug: "2tb", colorSlug: "black"),
-        SKU(part: "MJY34ZA/A", storage: "2TB", color: "银色", price: 21999, storageSlug: "2tb", colorSlug: "silver"),
-        SKU(part: "MJY54ZA/A", storage: "2TB", color: "冰川色", price: 21999, storageSlug: "2tb", colorSlug: "glacier"),
-    ]
-
-    static let stores: [AppleStore] = [
-        AppleStore(id: "R409", name: "铜锣湾"),
-        AppleStore(id: "R428", name: "ifc mall"),
-        AppleStore(id: "R499", name: "广东道"),
-        AppleStore(id: "R673", name: "apm"),
-        AppleStore(id: "R485", name: "又一城"),
-        AppleStore(id: "R610", name: "新城市广场"),
-    ]
-
-    static let storeNames: [String: String] = Dictionary(uniqueKeysWithValues: stores.map { ($0.id, $0.name) })
-
-    static func sku(part: String) -> SKU? {
-        skus.first { $0.part == part }
-    }
-}
-
-enum StockError: LocalizedError {
-    case blocked
-    case empty
-    case badStatus(Int)
-
-    var errorDescription: String? {
-        switch self {
-        case .blocked:
-            return "苹果暂时拒绝了查询，下一轮会再试。间隔不要短于 1 分钟。"
-        case .empty:
-            return "没有返回门店数据。"
-        case .badStatus(let code):
-            return "查询失败（HTTP \(code)）。"
-        }
-    }
-}
-
-enum StockClient {
-    static func fetch(part: String) async throws -> [StockHit] {
-        var components = URLComponents(string: "https://www.apple.com/hk/shop/retail/pickup-message")!
-        components.queryItems = [
-            URLQueryItem(name: "pl", value: "true"),
-            URLQueryItem(name: "parts.0", value: part),
-            URLQueryItem(name: "location", value: "香港"),
-        ]
-        var request = URLRequest(url: components.url!)
-        request.timeoutInterval = 25
-        request.setValue(
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            forHTTPHeaderField: "User-Agent"
-        )
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("zh-HK,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
-        request.setValue("https://www.apple.com/hk/shop/buy-iphone/iphone-18-pro", forHTTPHeaderField: "Referer")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw StockError.badStatus(http.statusCode)
-        }
-        guard let first = data.first, first == UInt8(ascii: "{") else {
-            throw StockError.blocked
-        }
-        let decoded = try JSONDecoder().decode(PickupEnvelope.self, from: data)
-        guard !decoded.body.stores.isEmpty else { throw StockError.empty }
-        let known = Catalog.sku(part: part)
-        return decoded.body.stores.map { store in
-            let partInfo = store.partsAvailability[part]
-            let quote = partInfo?.messageTypes?.regular?.storePickupQuote
-                ?? partInfo?.pickupSearchQuote
-                ?? ""
-            let title = partInfo?.messageTypes?.regular?.storePickupProductTitle
-                ?? known.map { "iPhone 18 Pro Max \($0.title)" }
-                ?? part
-            return StockHit(
-                part: part,
-                title: title,
-                storeID: store.storeNumber,
-                storeName: Catalog.storeNames[store.storeNumber] ?? store.storeName,
-                display: partInfo?.pickupDisplay ?? "",
-                quote: quote
-            )
-        }
-    }
-}
-
-private struct PickupEnvelope: Decodable {
-    struct Body: Decodable { let stores: [StoreJSON] }
-    let body: Body
-}
-
-private struct StoreJSON: Decodable {
-    let storeNumber: String
-    let storeName: String
-    let partsAvailability: [String: PartJSON]
-}
-
-private struct PartJSON: Decodable {
-    let pickupDisplay: String?
-    let pickupSearchQuote: String?
-    let messageTypes: MessageTypes?
-    struct MessageTypes: Decodable {
-        struct Regular: Decodable {
-            let storePickupQuote: String?
-            let storePickupProductTitle: String?
-        }
-        let regular: Regular?
-    }
-}
-
-@MainActor
-final class MonitorModel: ObservableObject {
-    @Published var selectedParts: Set<String>
-    @Published var selectedStores: Set<String>
-    @Published var interval: Int
-    @Published var running = false
-    @Published var checking = false
-    @Published var progress = ""
-    @Published var errorText = ""
-    @Published var updatedAt: Date?
-    @Published var hits: [StockHit] = []
-    @Published var customPart = ""
-
-    private var loop: Task<Void, Never>?
-    private var baseline: [String: String] = [:]
-    private let intervals = [60, 90, 120, 180]
-
-    init() {
-        let defaults = UserDefaults.standard
-        let savedParts = defaults.string(forKey: "parts") ?? "MJXQ4ZA/A"
-        let savedStores = defaults.string(forKey: "stores") ?? Catalog.stores.map(\.id).joined(separator: ",")
-        selectedParts = Set(savedParts.split(separator: ",").map(String.init))
-        selectedStores = Set(savedStores.split(separator: ",").map(String.init))
-        let savedInterval = defaults.integer(forKey: "interval")
-        interval = intervals.contains(savedInterval) ? savedInterval : 60
-    }
-
-    func boot() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-    }
-
-    var visibleHits: [StockHit] {
-        hits
-            .filter { selectedParts.contains($0.part) && selectedStores.contains($0.storeID) }
-            .sorted { lhs, rhs in
-                if lhs.inStock != rhs.inStock { return lhs.inStock && !rhs.inStock }
-                if lhs.title != rhs.title { return lhs.title < rhs.title }
-                return lhs.storeName < rhs.storeName
-            }
-    }
-
-    var inStockCount: Int { visibleHits.filter(\.inStock).count }
-
-    func togglePart(_ part: String) {
-        if selectedParts.contains(part) {
-            selectedParts.remove(part)
-        } else if selectedParts.count >= 6 {
-            errorText = "一次最多盯 6 个型号，避免查得太密被苹果挡住。"
-            return
-        } else {
-            selectedParts.insert(part)
-            errorText = ""
-        }
-        persist()
-    }
-
-    func toggleStore(_ id: String) {
-        if selectedStores.contains(id) {
-            selectedStores.remove(id)
-        } else {
-            selectedStores.insert(id)
-        }
-        persist()
-    }
-
-    func addCustomPart() {
-        let part = customPart.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard part.range(of: #"^[A-Z0-9]{4,8}ZA/A$"#, options: .regularExpression) != nil else {
-            errorText = "零件号要像 MJXQ4ZA/A 这样，以 ZA/A 结尾。"
-            return
-        }
-        guard selectedParts.count < 6 else {
-            errorText = "一次最多盯 6 个型号。"
-            return
-        }
-        selectedParts.insert(part)
-        customPart = ""
-        errorText = ""
-        persist()
-    }
-
-    func setInterval(_ value: Int) {
-        interval = value
-        persist()
-    }
-
-    func start() {
-        guard !selectedParts.isEmpty, !selectedStores.isEmpty else {
-            errorText = "先勾选型号和门店。"
-            return
-        }
-        errorText = ""
-        running = true
-        UIApplication.shared.isIdleTimerDisabled = true
-        baseline = [:]
-        loop?.cancel()
-        loop = Task { [weak self] in
-            guard let self else { return }
-            var primed = false
-            while !Task.isCancelled {
-                await self.checkOnce(notify: primed)
-                primed = true
-                let seconds = self.interval
-                try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
-            }
-        }
-    }
-
-    func stop() {
-        running = false
-        loop?.cancel()
-        loop = nil
-        UIApplication.shared.isIdleTimerDisabled = false
-        progress = ""
-    }
-
-    func checkOnce(notify: Bool) async {
-        let parts = selectedParts.sorted()
-        guard !parts.isEmpty else { return }
-        checking = true
-        defer {
-            checking = false
-            progress = ""
-        }
-        var next = hits
-        for (index, part) in parts.enumerated() {
-            if Task.isCancelled { return }
-            progress = "正在查 \(index + 1)/\(parts.count)"
-            if index > 0 {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-            }
-            do {
-                let rows = try await StockClient.fetch(part: part)
-                next.removeAll { $0.part == part }
-                next.append(contentsOf: rows)
-                errorText = ""
-            } catch {
-                errorText = error.localizedDescription
-            }
-        }
-        if Task.isCancelled { return }
-        hits = next
-        updatedAt = Date()
-        for hit in next where parts.contains(hit.part) && selectedStores.contains(hit.storeID) {
-            let key = hit.id
-            let previous = baseline[key]
-            baseline[key] = hit.display
-            if notify, hit.inStock, let previous, previous != "available" {
-                notifyInStock(hit)
-            }
-        }
-    }
-
-    private func notifyInStock(_ hit: StockHit) {
-        let content = UNMutableNotificationContent()
-        content.title = "有货 · \(hit.storeName)"
-        content.body = hit.title
-        content.sound = .default
-        let request = UNNotificationRequest(identifier: hit.id + "-" + UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
-    }
-
-    private func persist() {
-        let defaults = UserDefaults.standard
-        defaults.set(selectedParts.sorted().joined(separator: ","), forKey: "parts")
-        defaults.set(selectedStores.sorted().joined(separator: ","), forKey: "stores")
-        defaults.set(interval, forKey: "interval")
-    }
-}
-
-struct ContentView: View {
+struct RootView: View {
     @StateObject private var model = MonitorModel()
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showModels = false
+    @State private var showLog = false
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(model.inStockCount > 0 ? "\(model.inStockCount) 家门店有货" : "目前没有可取货的门店")
-                            .font(.title3.weight(.semibold))
-                        Text(statusLine)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        if !model.progress.isEmpty {
-                            Text(model.progress)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                        if !model.errorText.isEmpty {
-                            Text(model.errorText)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                        }
+            DashboardView(model: model)
+                .navigationTitle("港行库存")
+                .navigationBarTitleDisplayMode(.large)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("记录") { showLog = true }
                     }
-                    .padding(.vertical, 4)
-                }
-
-                Section("盯货") {
-                    Button(model.running ? "停止盯货" : "开始盯货") {
-                        model.running ? model.stop() : model.start()
-                    }
-                    .font(.body.weight(.semibold))
-                    Button("立即查一次") {
-                        Task { await model.checkOnce(notify: false) }
-                    }
-                    .disabled(model.checking)
-                    Picker("间隔", selection: Binding(
-                        get: { model.interval },
-                        set: { model.setInterval($0) }
-                    )) {
-                        Text("1 分钟").tag(60)
-                        Text("1.5 分钟").tag(90)
-                        Text("2 分钟").tag(120)
-                        Text("3 分钟").tag(180)
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("型号 \(model.selectedParts.count)") { showModels = true }
                     }
                 }
-
-                Section("iPhone 18 Pro Max 港版") {
-                    ForEach(modelGroups, id: \.0) { storage, items in
-                        Text(storage)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        ForEach(items) { sku in
-                            Button {
-                                model.togglePart(sku.part)
-                            } label: {
-                                HStack {
-                                    Image(systemName: model.selectedParts.contains(sku.part) ? "checkmark.circle.fill" : "circle")
-                                        .foregroundStyle(model.selectedParts.contains(sku.part) ? Color.accentColor : .secondary)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(sku.color).foregroundStyle(.primary)
-                                        Text("\(sku.part) · \(sku.priceText)")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                }
-                            }
-                        }
-                    }
-                    HStack {
-                        TextField("其他 ZA/A 零件号", text: $model.customPart)
-                            .textInputAutocapitalization(.characters)
-                            .autocorrectionDisabled()
-                        Button("加入") { model.addCustomPart() }
-                    }
-                    ForEach(customSelected, id: \.self) { part in
-                        Button {
-                            model.togglePart(part)
-                        } label: {
-                            HStack {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(Color.accentColor)
-                                Text(part).foregroundStyle(.primary)
-                                Spacer()
-                            }
-                        }
-                    }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    WatchBar(model: model)
                 }
-
-                Section("香港门店") {
-                    ForEach(Catalog.stores) { store in
-                        Button {
-                            model.toggleStore(store.id)
-                        } label: {
-                            HStack {
-                                Image(systemName: model.selectedStores.contains(store.id) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(model.selectedStores.contains(store.id) ? Color.accentColor : .secondary)
-                                Text(store.name).foregroundStyle(.primary)
-                                Spacer()
-                                Text(store.id)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-
-                Section("查询结果") {
-                    if model.visibleHits.isEmpty {
-                        Text("还没有结果。勾好型号和门店后点「立即查一次」。")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(model.visibleHits) { hit in
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text(hit.inStock ? "有货" : hit.statusText)
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(hit.inStock ? Color.green : Color.secondary)
-                                    Text(hit.storeName)
-                                    Spacer()
-                                }
-                                Text(hit.title)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                if hit.inStock {
-                                    Link("打开香港购买页", destination: buyURL(for: hit))
-                                        .font(.footnote)
-                                }
-                            }
-                            .padding(.vertical, 2)
-                        }
-                    }
-                }
-            }
-            .navigationTitle("港行库存")
-            .navigationBarTitleDisplayMode(.inline)
+        }
+        .sheet(isPresented: $showModels) {
+            ModelSheet(model: model)
+        }
+        .sheet(isPresented: $showLog) {
+            LogSheet(model: model)
         }
         .onAppear { model.boot() }
         .onChange(of: scenePhase) { _, phase in
@@ -508,37 +66,501 @@ struct ContentView: View {
                 model.stop()
             }
         }
+        .tint(Color.accentColor)
     }
+}
 
-    private var customSelected: [String] {
-        model.selectedParts.filter { Catalog.sku(part: $0) == nil }.sorted()
-    }
+struct DashboardView: View {
+    @ObservedObject var model: MonitorModel
+    @State private var showAll = false
+    @State private var focusPart: String?
 
-    private func buyURL(for hit: StockHit) -> URL {
-        if let sku = Catalog.sku(part: hit.part) {
-            return sku.productURL
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                hero
+                if model.selectedParts.count > 1 {
+                    partChips
+                }
+                storeBoard
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 4)
+            .padding(.bottom, 12)
         }
-        return URL(string: "https://www.apple.com/hk/shop/product/\(hit.part)")!
-    }
-
-    private var modelGroups: [(String, [SKU])] {
-        let order = ["256GB", "512GB", "1TB", "2TB"]
-        return order.compactMap { storage in
-            let items = Catalog.skus.filter { $0.storage == storage }
-            return items.isEmpty ? nil : (storage, items)
+        .background(Color(.systemGroupedBackground))
+        .refreshable {
+            await model.checkOnce(notify: model.running)
         }
     }
 
-    private var statusLine: String {
-        let when: String
-        if let updatedAt = model.updatedAt {
-            when = updatedAt.formatted(date: .omitted, time: .standard)
+    private var activePart: String? {
+        if showAll { return nil }
+        if let focusPart, model.selectedParts.contains(focusPart) { return focusPart }
+        return model.selectedParts.sorted().first
+    }
+
+    private var hero: some View {
+        let part = activePart
+        let count = model.inStockCount(part: part)
+        let checked = model.updatedAt != nil
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("iPhone 18 Pro Max · 香港")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+            Text(heroTitle)
+                .font(.title2.weight(.semibold))
+            HStack(alignment: .firstTextBaseline) {
+                StatusPill(
+                    text: !checked ? "尚未查询" : (count > 0 ? "\(count) 处有货" : "暂无现货"),
+                    positive: checked && count > 0
+                )
+                Spacer(minLength: 12)
+                if let price = singlePrice {
+                    Text(price)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if let updatedAt = model.updatedAt {
+                Text("上次 \(updatedAt.formatted(date: .omitted, time: .standard))")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            if !model.errorText.isEmpty {
+                Text(model.errorText)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(cardBackground)
+    }
+
+    private var heroTitle: String {
+        if let part = activePart, let sku = Catalog.sku(part: part) {
+            return sku.title
+        }
+        if model.selectedParts.count <= 1, let only = model.customParts.first, model.selectedSKUs.isEmpty {
+            return only
+        }
+        return "\(model.selectedParts.count) 个型号"
+    }
+
+    private var singlePrice: String? {
+        guard let part = activePart, let sku = Catalog.sku(part: part) else { return nil }
+        return sku.priceText
+    }
+
+    private var partChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                chip("全部", selected: showAll) {
+                    showAll = true
+                }
+                ForEach(model.selectedSKUs) { sku in
+                    chip(sku.title, selected: !showAll && activePart == sku.part) {
+                        showAll = false
+                        focusPart = sku.part
+                    }
+                }
+                ForEach(model.customParts, id: \.self) { part in
+                    chip(part, selected: !showAll && activePart == part) {
+                        showAll = false
+                        focusPart = part
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var storeBoard: some View {
+        let parts = boardParts
+        return VStack(alignment: .leading, spacing: 18) {
+            if parts.count > 1 && activePart == nil {
+                ForEach(parts, id: \.self) { part in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(partTitle(part))
+                            .font(.headline)
+                        rows(for: part, grouped: false)
+                    }
+                }
+            } else if let part = parts.first {
+                rows(for: part, grouped: true)
+            } else {
+                Text("还没有型号。点右上角「型号」选一台。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var boardParts: [String] {
+        if let activePart { return [activePart] }
+        return model.selectedParts.sorted()
+    }
+
+    @ViewBuilder
+    private func rows(for part: String, grouped: Bool) -> some View {
+        if grouped {
+            ForEach(Catalog.areas, id: \.self) { area in
+                let stores = Catalog.stores(in: area).filter { model.selectedStores.contains($0.id) }
+                if !stores.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(area)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 4)
+                        ForEach(stores) { store in
+                            StoreCard(store: store, hit: model.hit(part: part, store: store.id), part: part)
+                        }
+                    }
+                }
+            }
         } else {
-            when = "尚未查询"
+            ForEach(Catalog.stores.filter { model.selectedStores.contains($0.id) }) { store in
+                StoreCard(store: store, hit: model.hit(part: part, store: store.id), part: part)
+            }
         }
-        if model.running {
-            return "盯货中 · 屏幕保持常亮 · 上次 \(when)"
+    }
+
+    private func partTitle(_ part: String) -> String {
+        Catalog.sku(part: part)?.title ?? part
+    }
+
+    private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .background(selected ? Color.accentColor : Color(.secondarySystemGroupedBackground), in: Capsule())
         }
-        return "未在盯货 · 上次 \(when)。锁屏或退出后会停止查询。"
+        .buttonStyle(SnapButtonStyle())
+    }
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .fill(Color(.secondarySystemGroupedBackground))
+    }
+}
+
+struct StoreCard: View {
+    let store: AppleStore
+    let hit: StockHit?
+    let part: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(store.name)
+                    .font(.body.weight(.semibold))
+                Text("\(store.place)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if let quote = hit?.detailQuote {
+                    Text(quote)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 6) {
+                StatusPill(text: hit?.statusText ?? "待查询", positive: hit?.inStock == true)
+                if hit?.inStock == true {
+                    Link("购买", destination: buyURL)
+                        .font(.footnote.weight(.semibold))
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(hit?.inStock == true ? Color.green.opacity(0.45) : Color.clear, lineWidth: 1)
+        )
+    }
+
+    private var buyURL: URL {
+        if let sku = Catalog.sku(part: part) { return sku.productURL }
+        return URL(string: "https://www.apple.com/hk/shop/product/\(part)")!
+    }
+}
+
+struct StatusPill: View {
+    let text: String
+    let positive: Bool
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .foregroundStyle(positive ? Color.green : Color.secondary)
+            .background(
+                (positive ? Color.green : Color.secondary).opacity(0.14),
+                in: Capsule()
+            )
+    }
+}
+
+struct WatchBar: View {
+    @ObservedObject var model: MonitorModel
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if model.running {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(model.countdown(at: context.date))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                Text("锁屏或离开 App 后会停止查询")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Button {
+                model.running ? model.stop() : model.start()
+            } label: {
+                Text(model.running ? "停止盯货" : "开始盯货")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundStyle(.white)
+                    .background(
+                        model.running ? Color(.systemGray) : Color.accentColor,
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    )
+            }
+            .buttonStyle(SnapButtonStyle())
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.ultraThinMaterial)
+    }
+}
+
+struct ModelSheet: View {
+    @ObservedObject var model: MonitorModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var storage = "256GB"
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("快捷") {
+                    Button("256GB 勃艮第红") { model.applyHot() }
+                    Button("四个容量的勃艮第红") { model.applyBurgundy() }
+                }
+                Section {
+                    Picker("容量", selection: $storage) {
+                        ForEach(Catalog.storages, id: \.self) { Text($0).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 8, trailing: 16))
+                    ForEach(Catalog.skus.filter { $0.storage == storage }) { sku in
+                        Button {
+                            model.togglePart(sku.part)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Circle()
+                                    .fill(swatch(sku.color))
+                                    .frame(width: 18, height: 18)
+                                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(sku.color).foregroundStyle(.primary)
+                                    Text(sku.priceText)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if model.selectedParts.contains(sku.part) {
+                                    Image(systemName: "checkmark")
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                            }
+                        }
+                    }
+                    Button("盯这个容量的四种颜色") { model.selectStorage(storage) }
+                } header: {
+                    Text("iPhone 18 Pro Max")
+                } footer: {
+                    Text("已选 \(model.selectedParts.count)/6。查询间隔里，每个型号之间会停 2 秒。")
+                }
+                if !model.customParts.isEmpty {
+                    Section("已加的零件号") {
+                        ForEach(model.customParts, id: \.self) { part in
+                            Button {
+                                model.togglePart(part)
+                            } label: {
+                                HStack {
+                                    Text(part).foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                            }
+                        }
+                    }
+                }
+                Section("其他港版零件号") {
+                    HStack {
+                        TextField("例如 MJXQ4ZA/A", text: $model.customPart)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
+                        Button("加入") { model.addCustomPart() }
+                    }
+                }
+                Section("香港门店") {
+                    ForEach(Catalog.stores) { store in
+                        Button {
+                            model.toggleStore(store.id)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(store.name).foregroundStyle(.primary)
+                                    Text("\(store.area) · \(store.place)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if model.selectedStores.contains(store.id) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                            }
+                        }
+                    }
+                }
+                Section("查询间隔") {
+                    Picker("间隔", selection: Binding(
+                        get: { model.interval },
+                        set: { model.setInterval($0) }
+                    )) {
+                        Text("1分").tag(60)
+                        Text("1.5").tag(90)
+                        Text("2分").tag(120)
+                        Text("3分").tag(180)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                if !model.errorText.isEmpty {
+                    Section {
+                        Text(model.errorText)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("盯哪些")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.large])
+    }
+
+    private func swatch(_ color: String) -> Color {
+        switch color {
+        case "勃艮第红":
+            return Color(red: 0.55, green: 0.15, blue: 0.20)
+        case "黑色":
+            return Color(white: 0.16)
+        case "银色":
+            return Color(white: 0.78)
+        case "冰川色":
+            return Color(red: 0.70, green: 0.84, blue: 0.90)
+        default:
+            return Color.secondary
+        }
+    }
+}
+
+struct LogSheet: View {
+    @ObservedObject var model: MonitorModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if model.events.isEmpty {
+                    VStack(spacing: 8) {
+                        Text("还没有记录")
+                            .font(.title3.weight(.semibold))
+                        Text("开始盯货之后，只有从无货变成有货、或从有货变成无货才会记下来。第一次查询只用来认底。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(28)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(model.events) { event in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Circle()
+                                .fill(event.inStock ? Color.green : Color.secondary.opacity(0.45))
+                                .frame(width: 8, height: 8)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(event.inStock ? "有货" : "无货")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("\(event.storeName) · \(event.title)")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            Text(event.date.formatted(date: .omitted, time: .shortened))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("到货记录")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("清空") { model.clearEvents() }
+                        .disabled(model.events.isEmpty)
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Text("港行库存 1.1 · 香港官网到店取货")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+struct SnapButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(!reduceMotion && configuration.isPressed ? 0.98 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
