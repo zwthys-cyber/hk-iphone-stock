@@ -1,0 +1,71 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build unsigned iOS app
+        run: |
+          xcodebuild \
+            -project HKStock.xcodeproj \
+            -scheme HKStock \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Pack IPA for TrollStore
+        run: |
+          APP="build/Build/Products/Release-iphoneos/HKStock.app"
+          test -d "$APP"
+          rm -rf Payload
+          mkdir Payload
+          cp -R "$APP" Payload/
+          zip -r -y HKStock.ipa Payload
+          ls -lh HKStock.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HKStock-ipa
+          path: HKStock.ipa
+          if-no-files-found: error
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: 港行库存 ${{ github.run_number }}
+          body: |
+            iOS 17 巨魔可安装的未签名 IPA。
+            用 iPhone 下载 HKStock.ipa，在「文件」里点开，分享到 TrollStore 安装。
+          files: HKStock.ipa
+          make_latest: true
+          fail_on_unmatched_files: true

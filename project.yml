@@ -1,0 +1,43 @@
+name: HKStock
+options:
+  bundleIdPrefix: com.hkstock
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    SUPPORTS_MACCATALYST: NO
+targets:
+  HKStock:
+    type: application
+    platform: iOS
+    sources:
+      - path: HKStock
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hkstock.promax
+        PRODUCT_NAME: HKStock
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: HKStock/Info.plist
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
+schemes:
+  HKStock:
+    build:
+      targets:
+        HKStock: all
+    run:
+      config: Release
+    archive:
+      config: Release
